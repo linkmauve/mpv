@@ -146,7 +146,7 @@ static bool wayland_vk_init(struct ra_ctx *ctx)
     if (!mpvk_init(vk, ctx, VK_KHR_WAYLAND_SURFACE_EXTENSION_NAME))
         goto error;
 
-    if (!vo_wayland_init(ctx->vo))
+    if (!vo_wayland_init(ctx->vo, false))
         goto error;
 
     VkWaylandSurfaceCreateInfoKHR wlinfo = {

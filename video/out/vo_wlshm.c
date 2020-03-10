@@ -144,7 +144,7 @@ static int preinit(struct vo *vo)
 {
     struct priv *p = vo->priv;
 
-    if (!vo_wayland_init(vo))
+    if (!vo_wayland_init(vo, false))
         return -1;
     p->sws = mp_sws_alloc(vo);
     p->sws->log = vo->log;

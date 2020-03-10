@@ -61,6 +61,7 @@ struct vo_wayland_state {
     struct wl_display    *display;
     struct wl_shm        *shm;
     struct wl_compositor *compositor;
+    struct wl_subcompositor *subcompositor;
     struct wl_registry   *registry;
     struct wayland_opts  *opts;
 
@@ -75,6 +76,7 @@ struct vo_wayland_state {
     int reduced_height;
     bool configured;
     bool frame_wait;
+    bool use_subsurfaces;
     int timeout_count;
     int wakeup_pipe[2];
     int pending_vo_events;
@@ -94,6 +96,8 @@ struct vo_wayland_state {
 
     /* Shell */
     struct wl_surface       *surface;
+    struct wl_surface       *osd_surface;
+    struct wl_subsurface    *osd_subsurface;
     struct xdg_wm_base      *wm_base;
     struct xdg_toplevel     *xdg_toplevel;
     struct xdg_surface      *xdg_surface;
@@ -142,7 +146,7 @@ struct vo_wayland_state {
     bool                    cursor_visible;
 };
 
-int vo_wayland_init(struct vo *vo);
+int vo_wayland_init(struct vo *vo, bool use_subsurfaces);
 int vo_wayland_reconfig(struct vo *vo);
 int vo_wayland_control(struct vo *vo, int *events, int request, void *arg);
 int last_available_sync(struct vo_wayland_state *wl);

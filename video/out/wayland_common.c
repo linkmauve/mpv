@@ -877,6 +877,10 @@ static void registry_handle_add(void *data, struct wl_registry *reg, uint32_t id
         wl->shm = wl_registry_bind(reg, id, &wl_shm_interface, 1);
     }
 
+    if (wl->use_subsurfaces && !strcmp(interface, wl_subcompositor_interface.name) && found++) {
+        wl->subcompositor = wl_registry_bind(reg, id, &wl_subcompositor_interface, 1);
+    }
+
     if (!strcmp(interface, wl_data_device_manager_interface.name) && (ver >= 3) && found++) {
         wl->dnd_devman = wl_registry_bind(reg, id, &wl_data_device_manager_interface, 3);
     }
@@ -1076,7 +1080,23 @@ static void set_border_decorations(struct vo_wayland_state *wl, int state)
     zxdg_toplevel_decoration_v1_set_mode(wl->xdg_toplevel_decoration, mode);
 }
 
-int vo_wayland_init(struct vo *vo)
+static int create_subsurface(struct vo_wayland_state *wl)
+{
+    if (!wl->subcompositor)
+        return -1;
+
+    wl->osd_surface = wl_compositor_create_surface(wl->compositor);
+    if (!wl->osd_surface)
+        return -1;
+
+    wl->osd_subsurface = wl_subcompositor_get_subsurface(wl->subcompositor, wl->osd_surface, wl->surface);
+    if (!wl->osd_subsurface)
+        return -1;
+
+    return 0;
+}
+
+int vo_wayland_init(struct vo *vo, bool use_subsurfaces)
 {
     vo->wl = talloc_zero(NULL, struct vo_wayland_state);
     struct vo_wayland_state *wl = vo->wl;
@@ -1090,6 +1110,7 @@ int vo_wayland_init(struct vo *vo)
         .dnd_fd = -1,
         .cursor_visible = true,
         .vo_opts_cache = m_config_cache_alloc(wl, vo->global, &vo_sub_opts),
+        .use_subsurfaces = use_subsurfaces,
     };
     wl->vo_opts = wl->vo_opts_cache->opts;
 
@@ -1122,6 +1143,25 @@ int vo_wayland_init(struct vo *vo)
     /* Can't be initialized during registry due to multi-protocol dependence */
     if (create_xdg_surface(wl))
         return false;
+
+    if (wl->use_subsurfaces) {
+        /* Can't be initialized during registry due to multi-protocol dependence */
+        if (create_subsurface(wl)) {
+            /* Failed to create a subsurface, let’s fallback to sws or OpenGL */
+            wl->use_subsurfaces = false;
+
+            if (wl->osd_surface)
+                wl_surface_destroy(wl->osd_surface);
+            if (wl->osd_subsurface)
+                wl_subsurface_destroy(wl->osd_subsurface);
+            if (wl->subcompositor)
+                wl_subcompositor_destroy(wl->subcompositor);
+
+            wl->osd_surface = NULL;
+            wl->osd_subsurface = NULL;
+            wl->subcompositor = NULL;
+        }
+    }
 
     const char *xdg_current_desktop = getenv("XDG_CURRENT_DESKTOP");
     if (xdg_current_desktop != NULL && strstr(xdg_current_desktop, "GNOME"))
@@ -1237,6 +1277,15 @@ void vo_wayland_uninit(struct vo *vo)
 
     if (wl->presentation)
         wp_presentation_destroy(wl->presentation);
+
+    if (wl->osd_surface)
+        wl_surface_destroy(wl->osd_surface);
+
+    if (wl->osd_subsurface)
+        wl_subsurface_destroy(wl->osd_subsurface);
+
+    if (wl->subcompositor)
+        wl_subcompositor_destroy(wl->subcompositor);
 
     if (wl->pointer)
         wl_pointer_destroy(wl->pointer);
