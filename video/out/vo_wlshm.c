@@ -88,7 +88,7 @@ static int allocate_memfd(size_t size)
     return -1;
 }
 
-static struct buffer *buffer_create(struct vo *vo, int width, int height)
+static struct buffer *buffer_create(struct vo *vo, int width, int height, enum wl_shm_format format)
 {
     struct priv *p = vo->priv;
     struct vo_wayland_state *wl = vo->wl;
@@ -119,7 +119,7 @@ static struct buffer *buffer_create(struct vo *vo, int width, int height)
     if (!buf->pool)
         goto error3;
     buf->buffer = wl_shm_pool_create_buffer(buf->pool, 0, width, height,
-                                            stride, WL_SHM_FORMAT_XRGB8888);
+                                            stride, format);
     if (!buf->buffer)
         goto error4;
     wl_buffer_add_listener(buf->buffer, &buffer_listener, buf);
@@ -144,7 +144,7 @@ static int preinit(struct vo *vo)
 {
     struct priv *p = vo->priv;
 
-    if (!vo_wayland_init(vo, false))
+    if (!vo_wayland_init(vo, true))
         return -1;
     p->sws = mp_sws_alloc(vo);
     p->sws->log = vo->log;
@@ -218,7 +218,7 @@ static void draw_image(struct vo *vo, struct mp_image *src)
     if (buf) {
         p->free_buffers = buf->next;
     } else {
-        buf = buffer_create(vo, vo->dwidth, vo->dheight);
+        buf = buffer_create(vo, vo->dwidth, vo->dheight, WL_SHM_FORMAT_XRGB8888);
         if (!buf) {
             wl_surface_attach(wl->surface, NULL, 0, 0);
             return;
@@ -247,7 +247,15 @@ static void draw_image(struct vo *vo, struct mp_image *src)
             mp_image_clear(&buf->mpi, 0, dst_rc.y0, dst_rc.x0, dst_rc.y1);
         if (buf->mpi.w > dst_rc.x1)
             mp_image_clear(&buf->mpi, dst_rc.x1, dst_rc.y0, buf->mpi.w, dst_rc.y1);
-        osd_draw_on_image(vo->osd, p->osd, src->pts, 0, &buf->mpi);
+        if (!wl->use_subsurfaces)
+            osd_draw_on_image(vo->osd, p->osd, src->pts, 0, &buf->mpi);
+        else {
+            // XXX: keep a stash of buffers instead of that dumb one.
+            struct buffer *osd_buf = buffer_create(vo, vo->dwidth, vo->dheight, WL_SHM_FORMAT_ARGB8888);
+            mp_image_clear(&osd_buf->mpi, 0, 0, osd_buf->mpi.w, osd_buf->mpi.h);
+            osd_draw_on_image(vo->osd, p->osd, src->pts, 0, &osd_buf->mpi);
+            wl_surface_attach(wl->osd_surface, osd_buf->buffer, 0, 0);
+        }
     } else {
         mp_image_clear(&buf->mpi, 0, 0, buf->mpi.w, buf->mpi.h);
         osd_draw_on_image(vo->osd, p->osd, 0, 0, &buf->mpi);
@@ -259,6 +267,12 @@ static void draw_image(struct vo *vo, struct mp_image *src)
 static void flip_page(struct vo *vo)
 {
     struct vo_wayland_state *wl = vo->wl;
+
+    if (wl->use_subsurfaces) {
+        wl_surface_damage(wl->osd_surface, 0, 0, mp_rect_w(wl->geometry),
+                          mp_rect_h(wl->geometry));
+        wl_surface_commit(wl->osd_surface);
+    }
 
     wl_surface_damage(wl->surface, 0, 0, mp_rect_w(wl->geometry),
                       mp_rect_h(wl->geometry));
