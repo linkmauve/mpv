@@ -121,6 +121,12 @@ def build(ctx):
             protocol  = "stable/presentation-time/presentation-time",
             target    = "generated/wayland/presentation-time.h")
         ctx.wayland_protocol_code(proto_dir = ctx.env.WL_PROTO_DIR,
+            protocol  = "stable/viewporter/viewporter",
+            target    = "video/out/wayland/viewporter.c")
+        ctx.wayland_protocol_header(proto_dir = ctx.env.WL_PROTO_DIR,
+            protocol  = "stable/viewporter/viewporter",
+            target    = "video/out/wayland/viewporter.h")
+        ctx.wayland_protocol_code(proto_dir = ctx.env.WL_PROTO_DIR,
             protocol  = "unstable/xdg-decoration/xdg-decoration-unstable-v1",
             target    = "generated/wayland/xdg-decoration-unstable-v1.c")
         ctx.wayland_protocol_header(proto_dir = ctx.env.WL_PROTO_DIR,
@@ -509,6 +515,7 @@ def build(ctx):
         ( "video/out/w32_common.c",              "win32-desktop" ),
         ( "generated/wayland/idle-inhibit-unstable-v1.c", "wayland" ),
         ( "generated/wayland/presentation-time.c", "wayland" ),
+        ( "generated/wayland/viewporter.c",      "wayland" ),
         ( "generated/wayland/xdg-decoration-unstable-v1.c", "wayland" ),
         ( "generated/wayland/xdg-shell.c",       "wayland" ),
         ( "video/out/wayland_common.c",          "wayland" ),

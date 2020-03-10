@@ -42,6 +42,9 @@
 // Generated from presentation-time.xml
 #include "generated/wayland/presentation-time.h"
 
+// Generated from viewporter.xml
+#include "video/out/wayland/viewporter.h"
+
 #define OPT_BASE_STRUCT struct wayland_opts
 const struct m_sub_options wayland_conf = {
     .opts = (const struct m_option[]) {
@@ -877,8 +880,14 @@ static void registry_handle_add(void *data, struct wl_registry *reg, uint32_t id
         wl->shm = wl_registry_bind(reg, id, &wl_shm_interface, 1);
     }
 
-    if (wl->use_subsurfaces && !strcmp(interface, wl_subcompositor_interface.name) && found++) {
-        wl->subcompositor = wl_registry_bind(reg, id, &wl_subcompositor_interface, 1);
+    if (wl->use_subsurfaces) {
+        if (!strcmp(interface, wl_subcompositor_interface.name) && found++) {
+            wl->subcompositor = wl_registry_bind(reg, id, &wl_subcompositor_interface, 1);
+        }
+
+        if (!strcmp(interface, wp_viewporter_interface.name) && found++) {
+            wl->viewporter = wl_registry_bind(reg, id, &wp_viewporter_interface, 1);
+        }
     }
 
     if (!strcmp(interface, wl_data_device_manager_interface.name) && (ver >= 3) && found++) {
@@ -1093,6 +1102,10 @@ static int create_subsurface(struct vo_wayland_state *wl)
     if (!wl->osd_subsurface)
         return -1;
 
+    wl->viewport = wp_viewporter_get_viewport(wl->viewporter, wl->surface);
+    if (!wl->viewport)
+        return -1;
+
     return 0;
 }
 
@@ -1156,10 +1169,16 @@ int vo_wayland_init(struct vo *vo, bool use_subsurfaces)
                 wl_subsurface_destroy(wl->osd_subsurface);
             if (wl->subcompositor)
                 wl_subcompositor_destroy(wl->subcompositor);
+            if (wl->viewport)
+                wp_viewport_destroy(wl->viewport);
+            if (wl->viewporter)
+                wp_viewporter_destroy(wl->viewporter);
 
             wl->osd_surface = NULL;
             wl->osd_subsurface = NULL;
             wl->subcompositor = NULL;
+            wl->viewport = NULL;
+            wl->viewporter = NULL;
         }
     }
 
@@ -1286,6 +1305,12 @@ void vo_wayland_uninit(struct vo *vo)
 
     if (wl->subcompositor)
         wl_subcompositor_destroy(wl->subcompositor);
+
+    if (wl->viewport)
+        wp_viewport_destroy(wl->viewport);
+
+    if (wl->viewporter)
+        wp_viewporter_destroy(wl->viewporter);
 
     if (wl->pointer)
         wl_pointer_destroy(wl->pointer);

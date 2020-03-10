@@ -63,6 +63,7 @@ struct vo_wayland_state {
     struct wl_compositor *compositor;
     struct wl_subcompositor *subcompositor;
     struct wl_registry   *registry;
+    struct wp_viewporter *viewporter;
     struct wayland_opts  *opts;
 
     struct m_config_cache *vo_opts_cache;
@@ -103,6 +104,7 @@ struct vo_wayland_state {
     struct xdg_surface      *xdg_surface;
     struct wp_presentation  *presentation;
     struct wp_presentation_feedback *feedback;
+    struct wp_viewport      *viewport;
     struct zxdg_decoration_manager_v1 *xdg_decoration_manager;
     struct zxdg_toplevel_decoration_v1 *xdg_toplevel_decoration;
     struct zwp_idle_inhibit_manager_v1 *idle_inhibit_manager;
