@@ -30,6 +30,9 @@
 #include "vo.h"
 #include "wayland_common.h"
 
+// Generated from viewporter.xml
+#include "video/out/wayland/viewporter.h"
+
 struct buffer {
     struct vo *vo;
     size_t size;
@@ -47,13 +50,29 @@ struct priv {
     struct mp_osd_res osd;
 };
 
+static void get_video_buffer_size(struct vo *vo, struct mp_image *buf, int *width, int *height)
+{
+    struct vo_wayland_state *wl = vo->wl;
+
+    if (wl->use_subsurfaces) {
+        *width = buf->w;
+        *height = buf->h;
+    } else {
+        *width = vo->dwidth;
+        *height = vo->dheight;
+    }
+}
+
 static void buffer_handle_release(void *data, struct wl_buffer *wl_buffer)
 {
     struct buffer *buf = data;
     struct vo *vo = buf->vo;
     struct priv *p = vo->priv;
+    int width, height;
 
-    if (buf->mpi.w == vo->dwidth && buf->mpi.h == vo->dheight) {
+    get_video_buffer_size(vo, &buf->mpi, &width, &height);
+
+    if (buf->mpi.w == width && buf->mpi.h == height) {
         buf->next = p->free_buffers;
         p->free_buffers = buf;
     } else {
@@ -113,6 +132,8 @@ static struct buffer *buffer_create(struct vo *vo, int width, int height, enum w
     buf->size = size;
     mp_image_set_params(&buf->mpi, &p->sws->dst);
     mp_image_set_size(&buf->mpi, width, height);
+    buf->mpi.params.w = width;
+    buf->mpi.params.h = height;
     buf->mpi.planes[0] = data;
     buf->mpi.stride[0] = stride;
     buf->pool = wl_shm_create_pool(wl->shm, fd, size);
@@ -213,12 +234,15 @@ static void draw_image(struct vo *vo, struct mp_image *src)
     struct priv *p = vo->priv;
     struct vo_wayland_state *wl = vo->wl;
     struct buffer *buf;
+    int width, height;
+
+    get_video_buffer_size(vo, src, &width, &height);
 
     buf = p->free_buffers;
     if (buf) {
         p->free_buffers = buf->next;
     } else {
-        buf = buffer_create(vo, vo->dwidth, vo->dheight, WL_SHM_FORMAT_XRGB8888);
+        buf = buffer_create(vo, width, height, WL_SHM_FORMAT_XRGB8888);
         if (!buf) {
             wl_surface_attach(wl->surface, NULL, 0, 0);
             return;
@@ -226,35 +250,42 @@ static void draw_image(struct vo *vo, struct mp_image *src)
     }
     if (src) {
         struct mp_image dst = buf->mpi;
-        struct mp_rect src_rc;
         struct mp_rect dst_rc;
-        src_rc.x0 = MP_ALIGN_DOWN(p->src.x0, MPMAX(src->fmt.align_x, 4));
-        src_rc.y0 = MP_ALIGN_DOWN(p->src.y0, MPMAX(src->fmt.align_y, 4));
-        src_rc.x1 = p->src.x1 - (p->src.x0 - src_rc.x0);
-        src_rc.y1 = p->src.y1 - (p->src.y0 - src_rc.y0);
+
         dst_rc.x0 = MP_ALIGN_DOWN(p->dst.x0, MPMAX(dst.fmt.align_x, 4));
         dst_rc.y0 = MP_ALIGN_DOWN(p->dst.y0, MPMAX(dst.fmt.align_y, 4));
         dst_rc.x1 = p->dst.x1 - (p->dst.x0 - dst_rc.x0);
         dst_rc.y1 = p->dst.y1 - (p->dst.y0 - dst_rc.y0);
-        mp_image_crop_rc(src, src_rc);
-        mp_image_crop_rc(&dst, dst_rc);
-        mp_sws_scale(p->sws, &dst, src);
-        if (dst_rc.y0 > 0)
-            mp_image_clear(&buf->mpi, 0, 0, buf->mpi.w, dst_rc.y0);
-        if (buf->mpi.h > dst_rc.y1)
-            mp_image_clear(&buf->mpi, 0, dst_rc.y1, buf->mpi.w, buf->mpi.h);
-        if (dst_rc.x0 > 0)
-            mp_image_clear(&buf->mpi, 0, dst_rc.y0, dst_rc.x0, dst_rc.y1);
-        if (buf->mpi.w > dst_rc.x1)
-            mp_image_clear(&buf->mpi, dst_rc.x1, dst_rc.y0, buf->mpi.w, dst_rc.y1);
-        if (!wl->use_subsurfaces)
+
+        if (!wl->use_subsurfaces) {
+            struct mp_rect src_rc;
+            src_rc.x0 = MP_ALIGN_DOWN(p->src.x0, MPMAX(src->fmt.align_x, 4));
+            src_rc.y0 = MP_ALIGN_DOWN(p->src.y0, MPMAX(src->fmt.align_y, 4));
+            src_rc.x1 = p->src.x1 - (p->src.x0 - src_rc.x0);
+            src_rc.y1 = p->src.y1 - (p->src.y0 - src_rc.y0);
+
+            mp_image_crop_rc(src, src_rc);
+            mp_image_crop_rc(&dst, dst_rc);
+            mp_sws_scale(p->sws, &dst, src);
+            if (dst_rc.y0 > 0)
+                mp_image_clear(&buf->mpi, 0, 0, buf->mpi.w, dst_rc.y0);
+            if (buf->mpi.h > dst_rc.y1)
+                mp_image_clear(&buf->mpi, 0, dst_rc.y1, buf->mpi.w, buf->mpi.h);
+            if (dst_rc.x0 > 0)
+                mp_image_clear(&buf->mpi, 0, dst_rc.y0, dst_rc.x0, dst_rc.y1);
+            if (buf->mpi.w > dst_rc.x1)
+                mp_image_clear(&buf->mpi, dst_rc.x1, dst_rc.y0, buf->mpi.w, dst_rc.y1);
+
             osd_draw_on_image(vo->osd, p->osd, src->pts, 0, &buf->mpi);
-        else {
+        } else {
             // XXX: keep a stash of buffers instead of that dumb one.
             struct buffer *osd_buf = buffer_create(vo, vo->dwidth, vo->dheight, WL_SHM_FORMAT_ARGB8888);
             mp_image_clear(&osd_buf->mpi, 0, 0, osd_buf->mpi.w, osd_buf->mpi.h);
             osd_draw_on_image(vo->osd, p->osd, src->pts, 0, &osd_buf->mpi);
             wl_surface_attach(wl->osd_surface, osd_buf->buffer, 0, 0);
+
+            mp_sws_scale(p->sws, &dst, src);
+            wp_viewport_set_destination(wl->viewport, dst_rc.x1 - dst_rc.x0, dst_rc.y1 - dst_rc.y0);
         }
     } else {
         mp_image_clear(&buf->mpi, 0, 0, buf->mpi.w, buf->mpi.h);
