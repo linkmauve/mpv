@@ -1094,6 +1094,14 @@ static int create_subsurface(struct vo_wayland_state *wl)
     if (!wl->subcompositor)
         return -1;
 
+    wl->video_surface = wl_compositor_create_surface(wl->compositor);
+    if (!wl->video_surface)
+        return -1;
+
+    wl->video_subsurface = wl_subcompositor_get_subsurface(wl->subcompositor, wl->video_surface, wl->surface);
+    if (!wl->video_subsurface)
+        return -1;
+
     wl->osd_surface = wl_compositor_create_surface(wl->compositor);
     if (!wl->osd_surface)
         return -1;
@@ -1163,6 +1171,10 @@ int vo_wayland_init(struct vo *vo, bool use_subsurfaces)
             /* Failed to create a subsurface, let’s fallback to sws or OpenGL */
             wl->use_subsurfaces = false;
 
+            if (wl->video_surface)
+                wl_surface_destroy(wl->video_surface);
+            if (wl->video_subsurface)
+                wl_subsurface_destroy(wl->video_subsurface);
             if (wl->osd_surface)
                 wl_surface_destroy(wl->osd_surface);
             if (wl->osd_subsurface)
@@ -1174,6 +1186,8 @@ int vo_wayland_init(struct vo *vo, bool use_subsurfaces)
             if (wl->viewporter)
                 wp_viewporter_destroy(wl->viewporter);
 
+            wl->video_surface = NULL;
+            wl->video_subsurface = NULL;
             wl->osd_surface = NULL;
             wl->osd_subsurface = NULL;
             wl->subcompositor = NULL;
@@ -1296,6 +1310,12 @@ void vo_wayland_uninit(struct vo *vo)
 
     if (wl->presentation)
         wp_presentation_destroy(wl->presentation);
+
+    if (wl->video_surface)
+        wl_surface_destroy(wl->video_surface);
+
+    if (wl->video_subsurface)
+        wl_subsurface_destroy(wl->video_subsurface);
 
     if (wl->osd_surface)
         wl_surface_destroy(wl->osd_surface);

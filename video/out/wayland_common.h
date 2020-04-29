@@ -97,6 +97,8 @@ struct vo_wayland_state {
 
     /* Shell */
     struct wl_surface       *surface;
+    struct wl_surface       *video_surface;
+    struct wl_subsurface    *video_subsurface;
     struct wl_surface       *osd_surface;
     struct wl_subsurface    *osd_subsurface;
     struct xdg_wm_base      *wm_base;
