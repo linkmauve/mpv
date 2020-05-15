@@ -72,6 +72,72 @@ static const struct xdg_wm_base_listener xdg_wm_base_listener = {
     xdg_wm_base_ping,
 };
 
+static void buffer_handle_release(void *data, struct wl_buffer *buffer)
+{
+    struct wl_shm_pool *pool = data;
+
+    wl_shm_pool_destroy(pool);
+    wl_buffer_destroy(buffer);
+}
+
+static const struct wl_buffer_listener buffer_listener = {
+    buffer_handle_release,
+};
+
+static int allocate_memfd(size_t size)
+{
+    int fd = memfd_create("mpv", MFD_CLOEXEC | MFD_ALLOW_SEALING);
+    if (fd < 0)
+        return -1;
+
+    fcntl(fd, F_ADD_SEALS, F_SEAL_SHRINK | F_SEAL_SEAL);
+
+    if (posix_fallocate(fd, 0, size) == 0)
+        return fd;
+
+    close(fd);
+    return -1;
+}
+
+static struct wl_buffer *buffer_create(struct vo_wayland_state *wl, int width, int height, enum wl_shm_format format)
+{
+    int fd;
+    int stride;
+    size_t size;
+    uint8_t *data;
+    struct wl_shm_pool *pool;
+    struct wl_buffer *buffer;
+
+    stride = MP_ALIGN_UP(width * 4, 16);
+    size = height * stride;
+    fd = allocate_memfd(size);
+    if (fd < 0)
+        goto error0;
+    data = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    if (data == MAP_FAILED)
+        goto error1;
+    pool = wl_shm_create_pool(wl->shm, fd, size);
+    if (!pool)
+        goto error2;
+    buffer = wl_shm_pool_create_buffer(pool, 0, width, height,
+                                       stride, format);
+    if (!buffer)
+        goto error3;
+    wl_buffer_add_listener(buffer, &buffer_listener, pool);
+    close(fd);
+
+    return buffer;
+
+error3:
+    wl_shm_pool_destroy(pool);
+error2:
+    munmap(data, size);
+error1:
+    close(fd);
+error0:
+    return NULL;
+}
+
 static int spawn_cursor(struct vo_wayland_state *wl)
 {
     if (wl->allocated_cursor_scale == wl->scaling) /* Reuse if size is identical */
@@ -1110,9 +1176,18 @@ static int create_subsurface(struct vo_wayland_state *wl)
     if (!wl->osd_subsurface)
         return -1;
 
-    wl->viewport = wp_viewporter_get_viewport(wl->viewporter, wl->surface);
-    if (!wl->viewport)
+    wl->back_viewport = wp_viewporter_get_viewport(wl->viewporter, wl->surface);
+    if (!wl->back_viewport)
         return -1;
+
+    wl->video_viewport = wp_viewporter_get_viewport(wl->viewporter, wl->surface);
+    if (!wl->video_viewport)
+        return -1;
+
+    wl->black_buffer = buffer_create(wl, 1, 1, WL_SHM_FORMAT_XRGB8888);
+    if (!wl->black_buffer)
+        return -1;
+    wl_surface_attach(wl->surface, wl->black_buffer, 0, 0);
 
     return 0;
 }
@@ -1181,8 +1256,10 @@ int vo_wayland_init(struct vo *vo, bool use_subsurfaces)
                 wl_subsurface_destroy(wl->osd_subsurface);
             if (wl->subcompositor)
                 wl_subcompositor_destroy(wl->subcompositor);
-            if (wl->viewport)
-                wp_viewport_destroy(wl->viewport);
+            if (wl->back_viewport)
+                wp_viewport_destroy(wl->back_viewport);
+            if (wl->video_viewport)
+                wp_viewport_destroy(wl->video_viewport);
             if (wl->viewporter)
                 wp_viewporter_destroy(wl->viewporter);
 
@@ -1191,7 +1268,8 @@ int vo_wayland_init(struct vo *vo, bool use_subsurfaces)
             wl->osd_surface = NULL;
             wl->osd_subsurface = NULL;
             wl->subcompositor = NULL;
-            wl->viewport = NULL;
+            wl->back_viewport = NULL;
+            wl->video_viewport = NULL;
             wl->viewporter = NULL;
         }
     }
@@ -1326,8 +1404,11 @@ void vo_wayland_uninit(struct vo *vo)
     if (wl->subcompositor)
         wl_subcompositor_destroy(wl->subcompositor);
 
-    if (wl->viewport)
-        wp_viewport_destroy(wl->viewport);
+    if (wl->back_viewport)
+        wp_viewport_destroy(wl->back_viewport);
+
+    if (wl->video_viewport)
+        wp_viewport_destroy(wl->video_viewport);
 
     if (wl->viewporter)
         wp_viewporter_destroy(wl->viewporter);

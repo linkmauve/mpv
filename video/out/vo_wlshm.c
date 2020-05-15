@@ -92,21 +92,6 @@ static void buffer_destroy(void *p)
     munmap(buf->mpi.planes[0], buf->size);
 }
 
-static int allocate_memfd(size_t size)
-{
-    int fd = memfd_create("mpv", MFD_CLOEXEC | MFD_ALLOW_SEALING);
-    if (fd < 0)
-        return -1;
-
-    fcntl(fd, F_ADD_SEALS, F_SEAL_SHRINK | F_SEAL_SEAL);
-
-    if (posix_fallocate(fd, 0, size) == 0)
-        return fd;
-
-    close(fd);
-    return -1;
-}
-
 static struct buffer *buffer_create(struct vo *vo, int width, int height, enum wl_shm_format format)
 {
     struct priv *p = vo->priv;
@@ -215,6 +200,8 @@ static int resize(struct vo *vo)
         p->free_buffers = buf->next;
         talloc_free(buf);
     }
+    if (wl->use_subsurfaces)
+        wp_viewport_set_destination(wl->back_viewport, width, height);
     return mp_sws_reinit(p->sws);
 }
 
@@ -285,14 +272,14 @@ static void draw_image(struct vo *vo, struct mp_image *src)
             wl_surface_attach(wl->osd_surface, osd_buf->buffer, 0, 0);
 
             mp_sws_scale(p->sws, &dst, src);
-            wp_viewport_set_destination(wl->viewport, dst_rc.x1 - dst_rc.x0, dst_rc.y1 - dst_rc.y0);
+            wp_viewport_set_destination(wl->video_viewport, dst_rc.x1 - dst_rc.x0, dst_rc.y1 - dst_rc.y0);
         }
     } else {
         mp_image_clear(&buf->mpi, 0, 0, buf->mpi.w, buf->mpi.h);
         osd_draw_on_image(vo->osd, p->osd, 0, 0, &buf->mpi);
     }
     talloc_free(src);
-    wl_surface_attach(wl->surface, buf->buffer, 0, 0);
+    wl_surface_attach(wl->video_surface, buf->buffer, 0, 0);
 }
 
 static void flip_page(struct vo *vo)
@@ -300,6 +287,10 @@ static void flip_page(struct vo *vo)
     struct vo_wayland_state *wl = vo->wl;
 
     if (wl->use_subsurfaces) {
+        wl_surface_damage(wl->video_surface, 0, 0, mp_rect_w(wl->geometry),
+                          mp_rect_h(wl->geometry));
+        wl_surface_commit(wl->video_surface);
+
         wl_surface_damage(wl->osd_surface, 0, 0, mp_rect_w(wl->geometry),
                           mp_rect_h(wl->geometry));
         wl_surface_commit(wl->osd_surface);

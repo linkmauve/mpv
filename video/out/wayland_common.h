@@ -106,7 +106,8 @@ struct vo_wayland_state {
     struct xdg_surface      *xdg_surface;
     struct wp_presentation  *presentation;
     struct wp_presentation_feedback *feedback;
-    struct wp_viewport      *viewport;
+    struct wp_viewport      *back_viewport;
+    struct wp_viewport      *video_viewport;
     struct zxdg_decoration_manager_v1 *xdg_decoration_manager;
     struct zxdg_toplevel_decoration_v1 *xdg_toplevel_decoration;
     struct zwp_idle_inhibit_manager_v1 *idle_inhibit_manager;
@@ -162,5 +163,6 @@ void vo_wayland_wait_frame(struct vo_wayland_state *wl);
 void wayland_sync_swap(struct vo_wayland_state *wl);
 void vo_wayland_sync_shift(struct vo_wayland_state *wl);
 void queue_new_sync(struct vo_wayland_state *wl);
+void allocate_buffer(struct vo_wayland_state *wl);
 
 #endif /* MPLAYER_WAYLAND_COMMON_H */
